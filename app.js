@@ -72,7 +72,9 @@ class LayerAudio {
         this.generateBtn.addEventListener('click', () => this.handleGenerate());
         this.downloadBtn.addEventListener('click', () => this.handleDownload());
         this.rememberBtn.addEventListener('click', () => this.handleRemember());
-        this.rerunBtn.addEventListener('click', () => this.handleRerun());
+        if (this.rerunBtn) {
+            this.rerunBtn.addEventListener('click', () => this.handleRerun());
+        }
         this.stopBtn.addEventListener('click', () => this.handleStop());
 
         // Slider listeners
@@ -329,10 +331,15 @@ class LayerAudio {
         // Simulate processing time for UI feedback
         await new Promise((resolve) => setTimeout(resolve, Math.random() * 800 + 400));
 
-        const mixBuffer = this.mixAudioBuffers(this.audioBuffers);
+        const { channelPool, maxLength, sampleRate } = this.buildChannelPool(this.audioBuffers);
+        const outputChannels = Math.max(1, this.audchnum || channelPool.length || 1);
+        const panMapping = this.parsePanMapping(this.panfull, outputChannels, channelPool.length);
+        let mixBuffer = this.applyPanMapping(channelPool, panMapping, outputChannels, maxLength, sampleRate);
+        this.normalizeBuffer(mixBuffer);
+        mixBuffer = await this.applyToneShaping(mixBuffer, bass, treble);
         this.addLog(`Output Channels: ${mixBuffer.numberOfChannels}`, 'info');
 
-        const volumeScale = Math.max(0, Math.min(1, volume));
+        const volumeScale = Math.max(0, volume / 100);
         if (volumeScale !== 1) {
             this.applyGain(mixBuffer, volumeScale);
         }
@@ -343,29 +350,104 @@ class LayerAudio {
         return { blob, extension };
     }
 
-    mixAudioBuffers(buffers) {
+    buildChannelPool(buffers) {
         const maxLength = Math.max(...buffers.map((buffer) => buffer.length));
-        const maxInputChannels = Math.max(...buffers.map((buffer) => buffer.numberOfChannels));
-        const outputChannels = Math.max(1, this.audchnum || maxInputChannels);
         const sampleRate = this.audioContext.sampleRate;
-        const output = this.audioContext.createBuffer(outputChannels, maxLength, sampleRate);
+        const channelPool = [];
 
-        for (let i = 0; i < buffers.length; i++) {
-            const source = buffers[i];
-            const channelsToMix = Math.min(outputChannels, source.numberOfChannels);
-            for (let channel = 0; channel < channelsToMix; channel++) {
-                const outputData = output.getChannelData(channel);
+        for (const source of buffers) {
+            for (let channel = 0; channel < source.numberOfChannels; channel++) {
                 const sourceData = source.getChannelData(channel);
-                const length = Math.min(sourceData.length, maxLength);
-
-                for (let j = 0; j < length; j++) {
-                    outputData[j] += sourceData[j];
-                }
+                const data = new Float32Array(maxLength);
+                data.set(sourceData.subarray(0, maxLength));
+                channelPool.push(data);
             }
         }
 
-        this.normalizeBuffer(output);
+        return { channelPool, maxLength, sampleRate };
+    }
+
+    parsePanMapping(panfull, outputChannels, inputChannels) {
+        const mapping = Array.from({ length: outputChannels }, () => [{ index: 0, gain: 1 }]);
+        if (!panfull) return mapping;
+
+        const segments = panfull.split('|').slice(1);
+        for (const segment of segments) {
+            const [left, right] = segment.split('=');
+            if (!left || !right) continue;
+            const outMatch = left.match(/c(\d+)/);
+            if (!outMatch) continue;
+            const outIndex = parseInt(outMatch[1], 10);
+            if (Number.isNaN(outIndex) || outIndex < 0 || outIndex >= outputChannels) continue;
+
+            const tokens = right.match(/[+-]?c\d+/g) || [];
+            if (!tokens.length) continue;
+            const entries = [];
+            for (const token of tokens) {
+                const sign = token.startsWith('-') ? -1 : 1;
+                const index = parseInt(token.replace(/[+-]?c/, ''), 10);
+                if (Number.isNaN(index) || index < 0 || index >= inputChannels) continue;
+                entries.push({ index, gain: sign });
+            }
+            if (entries.length) {
+                mapping[outIndex] = entries;
+            }
+        }
+
+        return mapping;
+    }
+
+    applyPanMapping(channelPool, mapping, outputChannels, maxLength, sampleRate) {
+        const output = this.audioContext.createBuffer(outputChannels, maxLength, sampleRate);
+        for (let outChannel = 0; outChannel < outputChannels; outChannel++) {
+            const outputData = output.getChannelData(outChannel);
+            const entries = mapping[outChannel] || [];
+            for (const entry of entries) {
+                const inputData = channelPool[entry.index];
+                if (!inputData) continue;
+                const gain = entry.gain || 1;
+                for (let i = 0; i < maxLength; i++) {
+                    outputData[i] += inputData[i] * gain;
+                }
+            }
+        }
         return output;
+    }
+
+    async applyToneShaping(buffer, bass, treble) {
+        const bassGain = this.normalizeFilterGain(bass);
+        const trebleGain = this.normalizeFilterGain(treble);
+        if (bassGain === 0 && trebleGain === 0) {
+            return buffer;
+        }
+
+        if (typeof OfflineAudioContext === 'undefined') {
+            return buffer;
+        }
+
+        const offline = new OfflineAudioContext(buffer.numberOfChannels, buffer.length, buffer.sampleRate);
+        const source = offline.createBufferSource();
+        source.buffer = buffer;
+
+        const bassFilter = offline.createBiquadFilter();
+        bassFilter.type = 'lowshelf';
+        bassFilter.frequency.value = 200;
+        bassFilter.gain.value = bassGain;
+
+        const trebleFilter = offline.createBiquadFilter();
+        trebleFilter.type = 'highshelf';
+        trebleFilter.frequency.value = 3000;
+        trebleFilter.gain.value = trebleGain;
+
+        source.connect(bassFilter).connect(trebleFilter).connect(offline.destination);
+        source.start(0);
+        return await offline.startRendering();
+    }
+
+    normalizeFilterGain(value) {
+        if (typeof value !== 'number' || Number.isNaN(value)) return 0;
+        const scaled = value / 10;
+        return Math.max(-24, Math.min(24, scaled));
     }
 
     normalizeBuffer(buffer) {
