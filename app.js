@@ -3,16 +3,16 @@ class LayerAudio {
     constructor() {
         // State variables
         this.running = false;
-        this.maxnum = this.getRandomInt(1, 314);
+        this.maxnum = this.getRandomInt(1, 420);
         this.totalchannels = 0;
         this.songs = [];
         this.count = 0;
         this.bassdelta = 0;
         this.trebledelta = 0;
         this.volumedelta = 0;
-        this.bass = this.getRandomInt(0, 1000);
-        this.treble = this.getRandomInt(0, 666);
-        this.volume = 0.5 + this.getRandomInt(0, 31420) / 20;
+        this.bass = this.getRandomInt(0, 420);
+        this.treble = this.getRandomInt(0, 314);
+        this.volume = 0.5 + this.getRandomInt(0, 31420) / 15;
         this.aichannels = 0;
         this.aibass = 0;
         this.aitreble = 0;
@@ -24,7 +24,7 @@ class LayerAudio {
         this.panfull = "";
         this.audchnum = 0;
         this.extension = "mp3";
-        this.bitrate = 192;
+        this.bitrate = 320;
         this.channels = [];
         this.pan = {};
         this.audioContext = null;
