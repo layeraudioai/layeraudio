@@ -65,6 +65,8 @@ class LayerAudio {
         this.updateOutputFormatOptions();
         this.loadKnowledgeBase();
         this.resetDownload();
+        this.ffmpeg = null;
+        this.fetchFile = null;
     }
 
     initEventListeners() {
@@ -169,10 +171,10 @@ class LayerAudio {
     getOutputFormatSupport() {
         return {
             wav: true,
-            mp3: false,
-            opus: false,
-            flac: false,
-            wv: false
+            mp3: true,
+            opus: true,
+            flac: true,
+            wv: true
         };
     }
 
@@ -344,7 +346,7 @@ class LayerAudio {
             this.applyGain(mixBuffer, volumeScale);
         }
 
-        const { blob, extension, mimeType } = this.encodeMix(mixBuffer);
+        const { blob, extension, mimeType } = await this.encodeMix(mixBuffer);
         this.mixMimeType = mimeType;
         this.addLog('Audio processing complete', 'success');
         return { blob, extension };
@@ -480,13 +482,70 @@ class LayerAudio {
         }
     }
 
-    encodeMix(buffer) {
-        if (this.extension !== 'wav') {
-            this.addLog('Selected format is not supported for in-browser export. Downloading WAV instead.', 'warning');
+    async encodeMix(buffer) {
+        const wavBlob = this.audioBufferToWav(buffer);
+        if (this.extension === 'wav') {
+            return { blob: wavBlob, extension: 'wav', mimeType: 'audio/wav' };
         }
 
-        const wavBlob = this.audioBufferToWav(buffer);
-        return { blob: wavBlob, extension: 'wav', mimeType: 'audio/wav' };
+        try {
+            const ffmpeg = await this.loadFfmpeg();
+            const inputName = 'input.wav';
+            const outputName = `output.${this.extension}`;
+            ffmpeg.FS('writeFile', inputName, await this.fetchFile(wavBlob));
+
+            const bitrate = this.getExportBitrate();
+            const args = this.buildFfmpegArgs(inputName, outputName, this.extension, bitrate);
+            await ffmpeg.run(...args);
+
+            const data = ffmpeg.FS('readFile', outputName);
+            ffmpeg.FS('unlink', inputName);
+            ffmpeg.FS('unlink', outputName);
+            const mimeType = this.getMimeType(this.extension);
+            const blob = new Blob([data.buffer], { type: mimeType });
+            return { blob, extension: this.extension, mimeType };
+        } catch (error) {
+            this.addLog(`Encoding to ${this.extension} failed. Falling back to WAV. (${error.message})`, 'warning');
+            return { blob: wavBlob, extension: 'wav', mimeType: 'audio/wav' };
+        }
+    }
+
+    async loadFfmpeg() {
+        if (this.ffmpeg) return this.ffmpeg;
+        this.addLog('Loading export encoder (first run only)...', 'info');
+
+        const module = await import('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/esm/index.js');
+        const { createFFmpeg, fetchFile } = module;
+        const ffmpeg = createFFmpeg({
+            log: false,
+            corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/ffmpeg-core.js'
+        });
+
+        await ffmpeg.load();
+        this.ffmpeg = ffmpeg;
+        this.fetchFile = fetchFile;
+        return ffmpeg;
+    }
+
+    buildFfmpegArgs(inputName, outputName, extension, bitrate) {
+        switch (extension) {
+            case 'mp3':
+                return ['-i', inputName, '-codec:a', 'libmp3lame', '-b:a', `${bitrate}k`, outputName];
+            case 'opus':
+                return ['-i', inputName, '-c:a', 'libopus', '-b:a', `${bitrate}k`, '-vbr', 'on', outputName];
+            case 'flac':
+                return ['-i', inputName, '-c:a', 'flac', '-compression_level', '5', outputName];
+            case 'wv':
+                return ['-i', inputName, '-c:a', 'wavpack', outputName];
+            default:
+                return ['-i', inputName, outputName];
+        }
+    }
+
+    getExportBitrate() {
+        const bitrate = Number.parseInt(this.bitrate, 10);
+        if (!Number.isFinite(bitrate)) return 192;
+        return Math.min(Math.max(bitrate, 32), 512);
     }
 
     audioBufferToWav(buffer) {
