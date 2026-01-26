@@ -46,6 +46,7 @@ class LayerAudio {
         this.progressOverlay = document.getElementById('progressOverlay');
         this.progressFill = document.getElementById('progressFill');
         this.progressText = document.getElementById('progressText');
+        this.extensionSelect = document.getElementById('extension');
 
         // Slider elements
         this.bassSlider = document.getElementById('bassSlider');
@@ -61,6 +62,7 @@ class LayerAudio {
         this.panDisplay = document.getElementById('panDisplay');
 
         this.initEventListeners();
+        this.updateOutputFormatOptions();
         this.loadKnowledgeBase();
         this.resetDownload();
     }
@@ -95,7 +97,7 @@ class LayerAudio {
         const songInput = document.getElementById('songInput');
         const craziness = parseInt(document.getElementById('craziness').value);
         const surround = document.getElementById('surround').value;
-        const extension = document.getElementById('extension').value;
+        const extension = this.extensionSelect.value;
         const bitrate = parseInt(document.getElementById('bitrate').value);
         const loadAI = document.getElementById('loadAI').checked;
 
@@ -111,6 +113,7 @@ class LayerAudio {
 
         // Set audio channels based on surround selection
         this.setSurroundChannels(surround);
+        this.ensureSupportedExtension();
 
         // Initialize audio context
         if (!this.audioContext) {
@@ -120,7 +123,7 @@ class LayerAudio {
         this.addLog(`Starting LayerAudio with ${this.songs.length} song(s)`, 'info');
         this.addLog(`Craziness Level: ${craziness}`, 'info');
         this.addLog(`Surround: ${surround} (${this.audchnum} channels)`, 'info');
-        this.addLog(`Output Format: ${extension} @ ${bitrate}Kb/s`, 'info');
+        this.addLog(`Output Format: ${this.extension} @ ${bitrate}Kb/s`, 'info');
 
         if (loadAI) {
             this.addLog('Loading AI Knowledge Base...', 'info');
@@ -141,6 +144,43 @@ class LayerAudio {
         };
         this.audchnum = channelMap[panfull];
         this.panfull = panfull;
+    }
+
+    updateOutputFormatOptions() {
+        this.outputFormatSupport = this.getOutputFormatSupport();
+        const options = Array.from(this.extensionSelect.options);
+        for (const option of options) {
+            const originalLabel = option.dataset.label || option.textContent;
+            option.dataset.label = originalLabel;
+            const supported = !!this.outputFormatSupport[option.value];
+            option.disabled = !supported;
+            option.textContent = supported ? originalLabel : `${originalLabel} (browser export unavailable)`;
+        }
+        if (this.extensionSelect.selectedOptions.length) {
+            const selected = this.extensionSelect.selectedOptions[0];
+            if (selected.disabled) {
+                this.extensionSelect.value = 'wav';
+            }
+        }
+    }
+
+    getOutputFormatSupport() {
+        return {
+            wav: true,
+            mp3: false,
+            opus: false,
+            flac: false,
+            wv: false
+        };
+    }
+
+    ensureSupportedExtension() {
+        const selected = this.extensionSelect.value;
+        if (!this.outputFormatSupport || !this.outputFormatSupport[selected]) {
+            this.addLog('Selected output format is not available in-browser. Falling back to WAV.', 'warning');
+            this.extensionSelect.value = 'wav';
+            this.extension = 'wav';
+        }
     }
 
     async countSongs() {
@@ -290,6 +330,8 @@ class LayerAudio {
         await new Promise((resolve) => setTimeout(resolve, Math.random() * 800 + 400));
 
         const mixBuffer = this.mixAudioBuffers(this.audioBuffers);
+        this.addLog(`Output Channels: ${mixBuffer.numberOfChannels}`, 'info');
+
         const volumeScale = Math.max(0, Math.min(1, volume));
         if (volumeScale !== 1) {
             this.applyGain(mixBuffer, volumeScale);
@@ -303,16 +345,17 @@ class LayerAudio {
 
     mixAudioBuffers(buffers) {
         const maxLength = Math.max(...buffers.map((buffer) => buffer.length));
-        const outputChannels = 2;
+        const maxInputChannels = Math.max(...buffers.map((buffer) => buffer.numberOfChannels));
+        const outputChannels = Math.max(1, this.audchnum || maxInputChannels);
         const sampleRate = this.audioContext.sampleRate;
         const output = this.audioContext.createBuffer(outputChannels, maxLength, sampleRate);
 
         for (let i = 0; i < buffers.length; i++) {
             const source = buffers[i];
-            for (let channel = 0; channel < outputChannels; channel++) {
+            const channelsToMix = Math.min(outputChannels, source.numberOfChannels);
+            for (let channel = 0; channel < channelsToMix; channel++) {
                 const outputData = output.getChannelData(channel);
-                const sourceChannel = Math.min(channel, source.numberOfChannels - 1);
-                const sourceData = source.getChannelData(sourceChannel);
+                const sourceData = source.getChannelData(channel);
                 const length = Math.min(sourceData.length, maxLength);
 
                 for (let j = 0; j < length; j++) {
