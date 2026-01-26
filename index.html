@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LayerAudio - Audio Mixing Tool</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>LayerAudio</h1>
+            <p class="subtitle">Advanced Audio Layering & Mixing Tool</p>
+        </header>
+
+        <main>
+            <!-- Initial Setup Section -->
+            <section id="setupSection" class="section active">
+                <h2>Audio Mixing Setup</h2>
+                
+                <div class="form-group">
+                    <label for="songInput">Select Audio Files:</label>
+                    <input type="file" id="songInput" multiple accept="audio/*" required>
+                    <small>Select one or more audio files to mix</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="craziness">Craziness Level (1-6642069):</label>
+                    <input type="number" id="craziness" min="1" max="6642069" value="100">
+                    <small>1 = calmest (pure channel mapping), higher = more chaotic mixing</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="surround">Surround Sound Channeling:</label>
+                    <select id="surround">
+                        <option value="mono">Mono (1 channel)</option>
+                        <option value="stereo" selected>Stereo (2 channels)</option>
+                        <option value="5.1">5.1 Surround (6 channels)</option>
+                        <option value="7.1">7.1 Surround (8 channels)</option>
+                        <option value="hexadecagonal">Hexadecagonal (16 channels)</option>
+                        <option value="22.2">22.2 Surround (24 channels)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="extension">Output File Format:</label>
+                    <select id="extension">
+                        <option value="mp3" selected>MP3</option>
+                        <option value="opus">Opus</option>
+                        <option value="flac">FLAC</option>
+                        <option value="wv">WavPack</option>
+                        <option value="wav">WAV</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="bitrate">Bit Rate (Kb/s):</label>
+                    <input type="number" id="bitrate" min="32" max="320" value="192">
+                    <small>Recommended: 128-320 for MP3, 96-256 for others</small>
+                </div>
+
+                <div class="form-group checkbox-group">
+                    <input type="checkbox" id="loadAI">
+                    <label for="loadAI">Load AI Knowledge Base (if available)</label>
+                </div>
+
+                <button id="startBtn" class="btn btn-primary">Start Mixing</button>
+            </section>
+
+            <!-- Mixing Control Section -->
+            <section id="mixingSection" class="section">
+                <h2>Audio Mixing Control</h2>
+                
+                <div class="mixing-display">
+                    <div class="param-box">
+                        <h3>Bass</h3>
+                        <div class="param-value" id="bassValue">0</div>
+                        <input type="range" id="bassSlider" min="-128" max="128" value="0" class="slider">
+                        <small>-128 to 128</small>
+                    </div>
+
+                    <div class="param-box">
+                        <h3>Treble</h3>
+                        <div class="param-value" id="trebleValue">0</div>
+                        <input type="range" id="trebleSlider" min="-128" max="128" value="0" class="slider">
+                        <small>-128 to 128</small>
+                    </div>
+
+                    <div class="param-box">
+                        <h3>Volume</h3>
+                        <div class="param-value" id="volumeValue">0</div>
+                        <input type="range" id="volumeSlider" min="-128" max="128" value="0" class="slider">
+                        <small>-128 to 128</small>
+                    </div>
+                </div>
+
+                <div class="info-display">
+                    <h3>Mix Information</h3>
+                    <div class="info-item">
+                        <span class="label">Max Number:</span>
+                        <span id="maxNumDisplay">0</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="label">Total Channels:</span>
+                        <span id="totalChannelsDisplay">0</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="label">Pan Configuration:</span>
+                        <span id="panDisplay">c0</span>
+                    </div>
+                </div>
+
+                <div class="control-buttons">
+                    <button id="generateBtn" class="btn btn-success">Generate Mix</button>
+                    <button id="rememberBtn" class="btn btn-info">Save to Knowledge Base</button>
+                    <button id="rerunBtn" class="btn btn-secondary">New Mix</button>
+                    <button id="stopBtn" class="btn btn-danger">Stop & Exit</button>
+                </div>
+
+                <div id="logsSection" class="logs-section">
+                    <h3>Activity Log</h3>
+                    <div id="logOutput" class="log-output"></div>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>COPYRIGHT FFMPEG & BRENDAN CARELL</p>
+            <p>LayerAudio - Advanced Audio Mixing Tool</p>
+        </footer>
+    </div>
+
+    <!-- Hidden progress indicator -->
+    <div id="progressOverlay" class="progress-overlay hidden">
+        <div class="progress-content">
+            <h3>Processing Audio...</h3>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <p id="progressText">0%</p>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
