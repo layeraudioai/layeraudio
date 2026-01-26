@@ -30,6 +30,8 @@ class LayerAudio {
         this.audioContext = null;
         this.audioBuffers = [];
         this.knowledgeBase = [];
+        this.mixBlob = null;
+        this.mixMimeType = 'audio/wav';
 
         // DOM Elements
         this.setupSection = document.getElementById('setupSection');
@@ -39,6 +41,7 @@ class LayerAudio {
         this.rememberBtn = document.getElementById('rememberBtn');
         this.rerunBtn = document.getElementById('rerunBtn');
         this.stopBtn = document.getElementById('stopBtn');
+        this.downloadBtn = document.getElementById('downloadBtn');
         this.logOutput = document.getElementById('logOutput');
         this.progressOverlay = document.getElementById('progressOverlay');
         this.progressFill = document.getElementById('progressFill');
@@ -59,11 +62,13 @@ class LayerAudio {
 
         this.initEventListeners();
         this.loadKnowledgeBase();
+        this.resetDownload();
     }
 
     initEventListeners() {
         this.startBtn.addEventListener('click', () => this.handleStart());
         this.generateBtn.addEventListener('click', () => this.handleGenerate());
+        this.downloadBtn.addEventListener('click', () => this.handleDownload());
         this.rememberBtn.addEventListener('click', () => this.handleRemember());
         this.rerunBtn.addEventListener('click', () => this.handleRerun());
         this.stopBtn.addEventListener('click', () => this.handleStop());
@@ -86,6 +91,7 @@ class LayerAudio {
     }
 
     handleStart() {
+        this.resetDownload();
         const songInput = document.getElementById('songInput');
         const craziness = parseInt(document.getElementById('craziness').value);
         const surround = document.getElementById('surround').value;
@@ -249,6 +255,7 @@ class LayerAudio {
     async handleGenerate() {
         if (!this.running) return;
 
+        this.resetDownload();
         const datetime = new Date().toISOString().replace(/[:.]/g, '');
         
         this.addLog('Generating audio mix...', 'info');
@@ -263,9 +270,10 @@ class LayerAudio {
         this.addLog(`Pan Config: ${this.panfull}`, 'info');
 
         try {
-            // Simulate audio processing
-            await this.processAudio(finalBass, finalTreble, finalVolume);
-            this.addLog(`Mix generated: out_${datetime}.${this.extension}`, 'success');
+            const { blob, extension } = await this.processAudio(finalBass, finalTreble, finalVolume);
+            const filename = `out_${datetime}.${extension}`;
+            this.addLog(`Mix generated: ${filename}`, 'success');
+            this.setDownloadReady(filename, blob);
             this.showProgress(false);
         } catch (e) {
             this.addLog(`Error generating mix: ${e.message}`, 'error');
@@ -274,15 +282,131 @@ class LayerAudio {
     }
 
     async processAudio(bass, treble, volume) {
-        return new Promise((resolve) => {
-            // Simulate processing time
-            setTimeout(() => {
-                // In a real implementation, this would use Web Audio API
-                // to apply bass, treble, and volume adjustments
-                this.addLog('Audio processing complete', 'success');
-                resolve();
-            }, Math.random() * 2000 + 1000);
-        });
+        if (!this.audioBuffers.length) {
+            throw new Error('No audio buffers available to mix');
+        }
+
+        // Simulate processing time for UI feedback
+        await new Promise((resolve) => setTimeout(resolve, Math.random() * 800 + 400));
+
+        const mixBuffer = this.mixAudioBuffers(this.audioBuffers);
+        const volumeScale = Math.max(0, Math.min(1, volume));
+        if (volumeScale !== 1) {
+            this.applyGain(mixBuffer, volumeScale);
+        }
+
+        const { blob, extension, mimeType } = this.encodeMix(mixBuffer);
+        this.mixMimeType = mimeType;
+        this.addLog('Audio processing complete', 'success');
+        return { blob, extension };
+    }
+
+    mixAudioBuffers(buffers) {
+        const maxLength = Math.max(...buffers.map((buffer) => buffer.length));
+        const outputChannels = 2;
+        const sampleRate = this.audioContext.sampleRate;
+        const output = this.audioContext.createBuffer(outputChannels, maxLength, sampleRate);
+
+        for (let i = 0; i < buffers.length; i++) {
+            const source = buffers[i];
+            for (let channel = 0; channel < outputChannels; channel++) {
+                const outputData = output.getChannelData(channel);
+                const sourceChannel = Math.min(channel, source.numberOfChannels - 1);
+                const sourceData = source.getChannelData(sourceChannel);
+                const length = Math.min(sourceData.length, maxLength);
+
+                for (let j = 0; j < length; j++) {
+                    outputData[j] += sourceData[j];
+                }
+            }
+        }
+
+        this.normalizeBuffer(output);
+        return output;
+    }
+
+    normalizeBuffer(buffer) {
+        let peak = 0;
+        for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+            const data = buffer.getChannelData(channel);
+            for (let i = 0; i < data.length; i++) {
+                const value = Math.abs(data[i]);
+                if (value > peak) peak = value;
+            }
+        }
+
+        if (peak <= 1) return;
+
+        const scale = 1 / peak;
+        for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+            const data = buffer.getChannelData(channel);
+            for (let i = 0; i < data.length; i++) {
+                data[i] *= scale;
+            }
+        }
+    }
+
+    applyGain(buffer, gain) {
+        for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+            const data = buffer.getChannelData(channel);
+            for (let i = 0; i < data.length; i++) {
+                data[i] *= gain;
+            }
+        }
+    }
+
+    encodeMix(buffer) {
+        if (this.extension !== 'wav') {
+            this.addLog('Selected format is not supported for in-browser export. Downloading WAV instead.', 'warning');
+        }
+
+        const wavBlob = this.audioBufferToWav(buffer);
+        return { blob: wavBlob, extension: 'wav', mimeType: 'audio/wav' };
+    }
+
+    audioBufferToWav(buffer) {
+        const numChannels = buffer.numberOfChannels;
+        const sampleRate = buffer.sampleRate;
+        const numFrames = buffer.length;
+        const bytesPerSample = 2;
+        const blockAlign = numChannels * bytesPerSample;
+        const byteRate = sampleRate * blockAlign;
+        const dataSize = numFrames * blockAlign;
+        const bufferSize = 44 + dataSize;
+        const arrayBuffer = new ArrayBuffer(bufferSize);
+        const view = new DataView(arrayBuffer);
+
+        const writeString = (offset, text) => {
+            for (let i = 0; i < text.length; i++) {
+                view.setUint8(offset + i, text.charCodeAt(i));
+            }
+        };
+
+        writeString(0, 'RIFF');
+        view.setUint32(4, 36 + dataSize, true);
+        writeString(8, 'WAVE');
+        writeString(12, 'fmt ');
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
+        view.setUint16(22, numChannels, true);
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, byteRate, true);
+        view.setUint16(32, blockAlign, true);
+        view.setUint16(34, bytesPerSample * 8, true);
+        writeString(36, 'data');
+        view.setUint32(40, dataSize, true);
+
+        let offset = 44;
+        for (let i = 0; i < numFrames; i++) {
+            for (let channel = 0; channel < numChannels; channel++) {
+                const sample = buffer.getChannelData(channel)[i];
+                const clamped = Math.max(-1, Math.min(1, sample));
+                view.setInt16(offset, clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff, true);
+                offset += bytesPerSample;
+            }
+        }
+
+        return new Blob([arrayBuffer], { type: 'audio/wav' });
     }
 
     handleRemember() {
@@ -305,6 +429,7 @@ class LayerAudio {
     handleRerun() {
         if (!this.running) return;
 
+        this.resetDownload();
         // Reset sliders
         this.bassSlider.value = 0;
         this.trebleSlider.value = 0;
@@ -326,6 +451,7 @@ class LayerAudio {
         this.running = false;
         this.setupSection.classList.add('active');
         this.mixingSection.classList.remove('active');
+        this.resetDownload();
         this.addLog('Mixing session stopped', 'warning');
         this.addLog('COPYRIGHT FFMPEG & BRENDAN CARELL', 'info');
         
@@ -428,6 +554,53 @@ class LayerAudio {
 
     getRandomInt(min, max) {
         return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+
+    getMimeType(extension) {
+        const map = {
+            mp3: 'audio/mpeg',
+            opus: 'audio/opus',
+            flac: 'audio/flac',
+            wv: 'audio/wavpack',
+            wav: 'audio/wav'
+        };
+        return map[extension] || 'application/octet-stream';
+    }
+
+    resetDownload() {
+        this.mixReady = false;
+        this.mixFilename = '';
+        this.mixBlob = null;
+        this.downloadBtn.classList.add('hidden');
+        this.downloadBtn.setAttribute('aria-disabled', 'true');
+    }
+
+    setDownloadReady(filename, blob) {
+        if (!blob || blob.size === 0) {
+            this.addLog('Mix generation failed: output was empty', 'error');
+            this.resetDownload();
+            return;
+        }
+        this.mixReady = true;
+        this.mixFilename = filename;
+        this.mixBlob = blob;
+        this.downloadBtn.classList.remove('hidden');
+        this.downloadBtn.removeAttribute('aria-disabled');
+    }
+
+    handleDownload() {
+        if (!this.mixReady || !this.mixBlob) {
+            this.addLog('No generated mix available for download', 'error');
+            return;
+        }
+        const url = URL.createObjectURL(this.mixBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = this.mixFilename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
     }
 }
 

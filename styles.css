@@ -4,6 +4,10 @@
     box-sizing: border-box;
 }
 
+.hidden {
+    display: none !important;
+}
+
 :root {
     --primary-color: #6C5CE7;
     --secondary-color: #00B894;
