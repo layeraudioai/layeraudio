@@ -1,81 +1,4 @@
 // LayerAudio - Complete JavaScript Implementation
-class MIDI {
-    constructor(filePath = null) {
-        this.filePath = document.getElementById("midiFileInput").files[0];
-        this.midiData = null; // Parsed MIDI JSON structure
-    }
-
-    /**
-     * Loads and parses a MIDI file from disk.
-     * @param {string} filePath - Path to the MIDI file.
-     */
-    load(filePath) {
-       if (!filePath || typeof filePath !== 'string') {
-         this.addLog("Invalid file path.", 'error');
-       }
-       this.filePath = filePath;
-       const fileBuffer = fs.readFileSync(filePath);
-       this.midiData = parseMidi(fileBuffer);
-       this.addLog("MIDI file loaded: ${filePath}", 'success');
-       return midiData; 
-    }
-
-
-    /**
-     * Returns the parsed MIDI data.
-     * @returns {object|null} Parsed MIDI JSON or null if not loaded.
-     */
-    getData() {
-       if (!this.midiData) {
-            this.addLog("No MIDI data loaded.", 'error');
-            return;
-       }
-       return;
-       return this.midiData;
-    }
-
-    /**
-     * Saves the current MIDI data to a file.
-     * @param {string} outputPath - Path to save the MIDI file.
-     */
-    save(outputPath) {
-         if (!this.midiData) {
-                this.addLog("No MIDI data to save.", 'warning');
-         }
-         const outputBuffer = Buffer.from(writeMidi(this.midiData));
-         fs.writeFileSync(outputPath, outputBuffer);
-         this.addLog("MIDI file saved: ${outputPath}", 'success');
-         return;
-    }
-
-    /**
-     * Lists all note events in the MIDI file.
-     */
-    listNotes() {
-        if (!this.midiData) {
-            this.addLog("No MIDI data loaded.'", 'error');
-            return;
-        }
-        //this.midiData.tracks.forEach((track, trackIndex) => {
-        //    console.log(`Track ${trackIndex + 1}:`);
-        //    track.forEach(event => {
-        //        if (event.type === 'noteOn' || event.type === 'noteOff') {
-        //            this.addLog("  ${event.type} - Note: ${event.noteNumber}, Velocity: ${event.velocity}, Delta: ${event.deltaTime}", 'success');
-        //        }
-        //    });
-        //);
-    }
-    addLog(message, type = 'info') {
-        this.logOutput = document.getElementById('logOutput');
-        const line = document.createElement('div');
-        line.className = `log-line ${type}`;
-        const timestamp = new Date().toLocaleTimeString();
-        line.textContent = `[${timestamp}] ${message}`;
-        this.logOutput.appendChild(line);
-        this.logOutput.scrollTop = this.logOutput.scrollHeight;
-    }
-}
-
 class LayerAudio {
     constructor() {
         // State variables
@@ -383,7 +306,7 @@ class LayerAudio {
 
         // Build panfull configuration
         let panfullConfig = this.panfull;
-        for (let i = 0; i < this.audchnum*this.crayzz; i++) {
+        for (let i = 0; i < this.audchnum; i++) {
             const panIndex = this.getRandomInt(0, this.maxnum * 4 - 1);
             panfullConfig += `|c${i}=${this.pan[panIndex] || 'c0'}`;
         }
@@ -934,10 +857,10 @@ class LayerAudio {
         link.remove();
         URL.revokeObjectURL(url);
     }
-
+    
     midiToWav(midiArrayBuffer) {
       // Parse MIDI
-      const midi = new MIDI(midiArrayBuffer);
+      const midi = new Midi(midiArrayBuffer);
 
       // Create offline audio context for rendering
       const sampleRate = 44100;
@@ -945,41 +868,106 @@ class LayerAudio {
       const offlineCtx = new OfflineAudioContext(2, sampleRate * duration, sampleRate);
 
       // Load a basic synth for each track
-      //midi.tracks.forEach(track => {
-      //  track.notes.forEach(note => {
-      //    const osc = offlineCtx.createOscillator();
-      //    osc.type = "sine"; // simple sine wave
-      //    osc.frequency.value = 440 * Math.pow(2, (note.midi - 69) / 12);
+      midi.tracks.forEach(track => {
+        track.notes.forEach(note => {
+          const osc = offlineCtx.createOscillator();
+          osc.type = "sine"; // simple sine wave
+          osc.frequency.value = 440 * Math.pow(2, (note.midi - 69) / 12);
 
-      //   const gain = offlineCtx.createGain();
-      //    gain.gain.setValueAtTime(note.velocity, note.time);
-      //    gain.gain.linearRampToValueAtTime(0, note.time + note.duration);
+          const gain = offlineCtx.createGain();
+          gain.gain.setValueAtTime(note.velocity, note.time);
+          gain.gain.linearRampToValueAtTime(0, note.time + note.duration);
 
-      //    osc.connect(gain).connect(offlineCtx.destination);
-      //    osc.start(note.time);
-      //    osc.stop(note.time + note.duration);
-      //  });
-      //});
+          osc.connect(gain).connect(offlineCtx.destination);
+          osc.start(note.time);
+          osc.stop(note.time + note.duration);
+        });
+      });
 
       // Render to audio buffer
-      const renderedBuffer = offlineCtx.startRendering();
+      const renderedBuffer = await offlineCtx.startRendering();
 
       // Convert to WAV
       return audioBufferToWav(renderedBuffer);
     }
 
+    audioBufferToWav(buffer) {
+      const numOfChan = buffer.numberOfChannels;
+      const length = buffer.length * numOfChan * 2 + 44;
+      const bufferArray = new ArrayBuffer(length);
+      const view = new DataView(bufferArray);
+      const channels = [];
+      const sampleRate = buffer.sampleRate;
+
+      let offset = 0;
+
+      function writeString(str) {
+        for (let i = 0; i < str.length; i++) {
+          view.setUint8(offset++, str.charCodeAt(i));
+        }
+      }
+
+      function write16(val) {
+        view.setUint16(offset, val, true);
+        offset += 2;
+      }
+
+      function write32(val) {
+        view.setUint32(offset, val, true);
+        offset += 4;
+      }
+
+      // RIFF header
+      writeString('RIFF');
+      write32(length - 8);
+      writeString('WAVE');
+
+      // fmt chunk
+      writeString('fmt ');
+      write32(16);
+      write16(1);
+      write16(numOfChan);
+      write32(sampleRate);
+      write32(sampleRate * numOfChan * 2);
+      write16(numOfChan * 2);
+      write16(16);
+
+      // data chunk
+      writeString('data');
+      write32(length - 44);
+
+      // Write interleaved PCM samples
+      for (let i = 0; i < numOfChan; i++) {
+        channels.push(buffer.getChannelData(i));
+      }
+
+      let interleaved = new Float32Array(buffer.length * numOfChan);
+      for (let i = 0; i < buffer.length; i++) {
+        for (let ch = 0; ch < numOfChan; ch++) {
+          interleaved[i * numOfChan + ch] = channels[ch][i];
+        }
+      }
+
+      let index = 44;
+      for (let i = 0; i < interleaved.length; i++, index += 2) {
+        let s = Math.max(-1, Math.min(1, interleaved[i]));
+        view.setInt16(index, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      }
+
+      return new Blob([bufferArray], { type: "audio/wav" });
+    }
 
     handleConvert() {
       const fileInput = document.getElementById("midiFileInput");
       const convertBtn = document.getElementById("convertBtn");
       const downloadLink = document.getElementById("downloadLink");
         
-      if (!fileInput.files.length) {
-        this.addLog("Please select a MIDI file first.", 'error');
+        if (!fileInput.files.length) {
+        alert("Please select a MIDI file first.");
         return;
       }
-      const midiBuffer = fileInput.files[0].arrayBuffer();
-      const wavBlob = midiToWav(midiBuffer);
+      const midiBuffer = await fileInput.files[0].arrayBuffer();
+      const wavBlob = await midiToWav(midiBuffer);
 
       // Create download link
       downloadLink.href = URL.createObjectURL(wavBlob);
@@ -987,7 +975,7 @@ class LayerAudio {
       downloadLink.style.display = "inline";
       downloadLink.textContent = "Download WAV";
     }
-}    
+}
 
 // Initialize the application when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
