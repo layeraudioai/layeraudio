@@ -94,8 +94,8 @@ class LayerAudio {
         this.treble = this.getRandomInt(0, 66);
         this.bassfreq = this.getRandomInt(0, 1000);
         this.treblefreq = this.getRandomInt(666, 10000);
-        this.volume = 0.5 + this.getRandomInt(0, 31415) / 420;
-        this.tempo = 0.5 + this.getRandomInt(0, 15);
+        this.volume = this.getRandomInt(10, 31415) / 420;
+        this.tempo = this.getRandomInt(1666, 42669);
         this.aichannels = 0;
         this.aibass = 0;
         this.aitreble = 0;
@@ -104,6 +104,7 @@ class LayerAudio {
         this.aivolume = 0;
         this.aitempo = 0;
         this.aimaxnum = 0;
+        this.bytespersample = 0;
 
         // Audio processing variables
         this.crayzz = 0;
@@ -120,6 +121,8 @@ class LayerAudio {
         this.mixMimeType = 'audio/wav';
 
         // DOM Elements
+        this.audioSource = document.getElementById('audioSource');
+        this.player = document.getElementById('player');
         this.setupSection = document.getElementById('setupSection');
         this.mixingSection = document.getElementById('mixingSection');
         this.startBtn = document.getElementById('startBtn');
@@ -128,6 +131,7 @@ class LayerAudio {
         this.rerunBtn = document.getElementById('rerunBtn');
         this.stopBtn = document.getElementById('stopBtn');
         this.convertBtn = document.getElementById('convertBtn');
+        this.playBtn = document.getElementById('playBtn');
         this.downloadBtn = document.getElementById('downloadBtn');
         this.deleteBtn = document.getElementById('deleteBtn');
         this.logOutput = document.getElementById('logOutput');
@@ -164,6 +168,7 @@ class LayerAudio {
     }
 
     initEventListeners() {
+        this.playBtn.addEventListener('click', () => this.handlePlay());
         this.convertBtn.addEventListener('click', () => this.handleConvert());
         this.startBtn.addEventListener('click', () => this.handleStart());
         this.generateBtn.addEventListener('click', () => this.handleGenerate());
@@ -414,12 +419,12 @@ class LayerAudio {
         this.showProgress(true);
 
         // Calculate final parameters
-        const finalBass = this.bass + this.bassdelta;
-        const finalTreble = this.treble + this.trebledelta;
-        const finalBassFreq = this.bassfreq + this.bassfreqdelta;
-        const finalTrebleFreq = this.treblefreq + this.treblefreqdelta;
-        const finalVolume = this.volume + this.volumedelta / 100;
-        const finalTempo = this.tempo + this.tempodelta;
+        const finalBass = this.bass + (this.bassdelta*this.getRandomInt(0,3));
+        const finalTreble = this.treble + (this.trebledelta*this.getRandomInt(0,3));
+        const finalBassFreq = this.bassfreq + (this.bassfreqdelta*this.getRandomInt(0,3));
+        const finalTrebleFreq = this.treblefreq + (this.treblefreqdelta*this.getRandomInt(0,3));
+        const finalVolume = this.volume + (this.volumedelta*this.getRandomInt(0,3)) / 100;
+        const finalTempo = this.tempo + (this.tempodelta*this.getRandomInt(0,3));
         this.bass=finalBass;
         this.treble=finalTreble;
         this.bassfreq=finalBassFreq;
@@ -453,7 +458,7 @@ class LayerAudio {
         const outputChannels = Math.max(1, this.audchnum || channelPool.length || 1);
         const panMapping = this.parsePanMapping(this.panfull, outputChannels, channelPool.length);
         let mixBuffer = this.applyPanMapping(channelPool, panMapping, outputChannels, maxLength, sampleRate);
-        this.normalizeBuffer(mixBuffer);
+        //this.normalizeBuffer(mixBuffer);
         mixBuffer = await this.applyToneShaping(mixBuffer, bass, treble);
         this.addLog(`Output Channels: ${mixBuffer.numberOfChannels}`, 'info');
 
@@ -663,13 +668,23 @@ class LayerAudio {
         if (!Number.isFinite(bitrate)) return 192;
         return Math.min(Math.max(bitrate, 32), 512);
     }
-
+    highestPowerof2(N)
+    {
+      // if N is a power of two simply return it
+      if (!(N & (N - 1)))
+        return N;
+      // else set only the most significant bit
+    
+      return 1 << ((N.toString(2)).length) - 1;
+    }
     audioBufferToWav(buffer) {
+        const tempoMod = (this.highestPowerof2((this.tempo/10000000)*10000000)/128)/8;
+        this.addLog(tempoMod, 'warning');
         const numChannels = buffer.numberOfChannels;
         const sampleRate = buffer.sampleRate;
         const numFrames = buffer.length;
-        const bytesPerSample = 2;
-        const blockAlign = numChannels * bytesPerSample;
+        this.bytespersample = 2;
+        const blockAlign = numChannels * this.bytespersample;
         const byteRate = sampleRate * blockAlign;
         const dataSize = numFrames * blockAlign;
         const bufferSize = 44 + dataSize;
@@ -692,7 +707,7 @@ class LayerAudio {
         view.setUint32(24, sampleRate, true);
         view.setUint32(28, byteRate, true);
         view.setUint16(32, blockAlign, true);
-        view.setUint16(34, bytesPerSample * 8, true);
+        view.setUint16(34, this.bytespersample * 8, true);
         writeString(36, 'data');
         view.setUint32(40, dataSize, true);
 
@@ -700,9 +715,9 @@ class LayerAudio {
         for (let i = 0; i < numFrames; i++) {
             for (let channel = 0; channel < numChannels; channel++) {
                 const sample = buffer.getChannelData(channel)[i];
-                const clamped = Math.max(-4.20, Math.min(6.66, sample));
+                const clamped = Math.max(-1, Math.min(1, sample));
                 view.setInt16(offset, clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff, true);
-                offset += bytesPerSample;
+                offset += this.bytespersample;
             }
         }
         return new Blob([arrayBuffer], { type: 'audio/wav' });
@@ -905,6 +920,8 @@ class LayerAudio {
         this.mixBlob = null;
         this.downloadBtn.classList.add('hidden');
         this.downloadBtn.setAttribute('aria-disabled', 'true');
+        this.playBtn.classList.add('hidden');
+        this.playBtn.setAttribute('aria-disabled', 'true');
     }
 
     setDownloadReady(filename, blob) {
@@ -918,6 +935,34 @@ class LayerAudio {
         this.mixBlob = blob;
         this.downloadBtn.classList.remove('hidden');
         this.downloadBtn.removeAttribute('aria-disabled');
+        this.playBtn.classList.remove('hidden');
+        this.playBtn.removeAttribute('aria-disabled');
+    }
+    changeAudio(newSrc) {
+        // Pause current playback
+        this.player.pause();
+        // Change the source directly on the <audio> element
+        this.player.src=newSrc;
+        // Load the new source
+        this.player.load();
+        // Play the new audio
+        this.player.play();
+    }
+    handlePlay() {
+        this.addLog("play clicked", 'warning');
+        if (!this.mixReady || !this.mixBlob) {
+            this.addLog('No generated mix available for playing', 'error');
+            return;
+        }
+        const url = URL.createObjectURL(this.mixBlob);
+        //const link = document.createElement('a');
+        //link.href = url;
+        //link.download = this.mixFilename;
+        //document.body.appendChild(link);
+        this.changeAudio(url);        
+        //link.click();
+        //link.remove();
+        //URL.revokeObjectURL(url);
     }
 
     handleDownload() {
@@ -929,6 +974,7 @@ class LayerAudio {
         const link = document.createElement('a');
         link.href = url;
         link.download = this.mixFilename;
+        
         document.body.appendChild(link);
         link.click();
         link.remove();

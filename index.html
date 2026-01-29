@@ -9,7 +9,8 @@
 <body>
     <div class="container">
         <header>
-            <h1 class="subtitle">LayerAudiov0.000000000000000000.00000000.4.2.0_7-r1.1</h1>
+            <h1 class="subtitle">LayerAudio -the legendary edition-</h1>
+            <small>v0.000000000000000000.00000000.4.2.0_66-r64.69</small>
             <p class="subtitle">Advanced Audio Layering & Mixing Tool</p>
         </header>
 
@@ -89,7 +90,8 @@
             <!-- Mixing Control Section -->
             <section id="mixingSection" class="section">
                 <h2>Audio Mixing Control</h2>
-                
+                <audio id="player" controls>
+                <source id="audioSource" src="" type="audio/wav"></audio>
                 <div class="mixing-display">
                     <div class="param-box">
                         <h3>Bass</h3>
@@ -123,15 +125,16 @@
                     <div class="param-box">
                         <h3>Tempo</h3>
                         <div class="param-value" id="tempoValue">0</div>
-                        <input type="range" id="tempoSlider" min="-66" max="512" value="0" class="slider">
-                        <small>-66 to 512</small>
+                        <input type="range" id="tempoSlider" min="-420" max="420" value="0" class="slider">
+                        <small>-420 to 420</small>
                     </div>
                 </div>
                 <div class="control-buttons">
                     <button id="generateBtn" class="btn btn-success">Generate Mix</button>
                     <button id="downloadBtn" class="btn btn-primary hidden" type="button">Download Mix</button>
+                    <button id="playBtn" class="btn btn-primary hidden" type="button">Play Mix</button>
                     <button id="rememberBtn" class="btn btn-info">Save to Knowledge Base</button>
-                    <button id="stopBtn" class="btn btn-danger">Stop & Exit</button>
+                    <button id="stopBtn" class="btn btn-info">Stop & Exit</button>
                     <button id="deleteBtn" class="btn btn-danger">Delete Knowledge Base and RNG Base Values Again</button>
                     <button id="refreshBtn" class="btn btn-info" onclick="window.location.reload();">Refresh Page and RNG Base Values Again</button>
                 </div>
